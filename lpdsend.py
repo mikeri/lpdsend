@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import sys
 import socket
+import random
 
 if sys.stdin.isatty():
     print("Specify print data as stdin. Examples:")
@@ -17,13 +18,13 @@ except IndexError:
 
 connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 connection.connect(printer_address)
-
+job_number = bytes(f"{random.randint(1,100):03d}", 'ascii')
 print_data = sys.stdin.buffer.read()
 control_file = b'''Hlpdsendhost
 Plpdsend-user
 JLPD Test Page
-ldfA346lpdsendhost
-UdfA346lpdsendhost
+ldfA''' + job_number + b'''lpdsendhost
+UdfA''' + job_number + b'''lpdsendhost
 NLPD Test Page
 '''
 data_length = len(print_data)
@@ -33,31 +34,39 @@ def lpd_command(command, attributes):
     command_byte = bytes.fromhex(command)
     attribute_string = b' '.join(attributes)
     print("LPD command code " + command + ', attributes: ' + attribute_string.decode('ascii', 'ignore'))
-    return command_byte + attribute_string
+    return command_byte + attribute_string + b'\n'
 
 def lpd_send(data):
     connection.send(data)
     if response(connection):
         return True
+    else:
+        print("Printing aborted.")
+        exit()
 
 def response(connection):
+    print("Awaiting response...")
     response_byte = connection.recv(1)
     if response_byte == b'\x00':
         print("Request aknowledged OK, resuming...")
         return True
+    elif response_byte == b'\x01':
+        print("Print queue does not accept jobs.")
+        return False
     else:
         print("Request aknowledged failed!")
-        exit()
+        return False
 
 print("Starting LPD connection...")
 lpd_send(lpd_command('02', [b'lp']))
-print("Sending control file recv command")
-length_string = bytes(str(control_length), 'ascii')
-lpd_send(lpd_command('02', [length_string, b"cfa001lpdsendhost"]))
+# print("Sending control file recv command")
+# length_string = bytes(str(control_length), 'ascii')
+# lpd_send(lpd_command('02', [length_string, b"cfA" + job_number + b"lpdsendhost"]))
+# print("Sending control data...")
+# connection.send(control_file)
 print("Sending job recv command")
 length_string = bytes(str(data_length), 'ascii')
-lpd_send(lpd_command('03', [length_string, b"dfa001lpdsendhost"]))
-# lpd_send(lpd_command('03', [b'5', b"dfa001pc"]))
+lpd_send(lpd_command('03', [length_string, b"dfA" + job_number + b"lpdsendhost"]))
 print("Sending print data...")
 connection.send(print_data)
 connection.close()
