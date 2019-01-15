@@ -57,7 +57,10 @@ def response(connection):
         print("Print queue does not accept jobs.")
         return False
     else:
-        print("Request aknowledged failed!")
+        if response_byte:
+            print("Request aknowledged failed, response code: " + response_byte.hex())
+        else:
+            print("Request aknowledged failed, empty response.")
         return False
 
 print("Starting LPD connection...")
