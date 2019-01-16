@@ -19,8 +19,6 @@ except IndexError:
 
 user = bytes(getuser().encode('ascii', 'ignore'))
 hostname = bytes(socket.gethostname().encode('ascii', 'ignore'))
-connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-connection.connect(printer_address)
 job_number = bytes(f"{random.randint(1,100):03d}", 'ascii')
 print_data = sys.stdin.buffer.read()
 control_file = b'''H''' + hostname + b'''
@@ -39,13 +37,13 @@ def lpd_command(command, attributes):
     print("LPD command code " + command + ', attributes: ' + attribute_string.decode('ascii', 'ignore'))
     return command_byte + attribute_string + b'\n'
 
-def lpd_send(data):
+def lpd_send(connection, data):
     connection.send(data)
     if response(connection):
         return True
     else:
         print("Printing aborted.")
-        exit()
+        return False
 
 def response(connection):
     print("Awaiting response...")
@@ -63,17 +61,40 @@ def response(connection):
             print("Request aknowledged failed, empty response.")
         return False
 
-print("Starting LPD connection...")
-lpd_send(lpd_command('02', [b'lptest']))
-print("Sending control file recv command")
-length_string = bytes(str(control_length), 'ascii')
-lpd_send(lpd_command('02', [length_string, b"cfA" + job_number + hostname]))
-print("Sending control data...")
-lpd_send(control_file + b'\x00')
-print("Sending job recv command")
-length_string = bytes(str(data_length), 'ascii')
-lpd_send(lpd_command('03', [length_string, b"dfA" + job_number + hostname]))
-print("Sending print data...")
-connection.send(print_data + b'\x00')
-connection.close()
-print("Job sent successfully.")
+def print_job(connection):
+    print("Starting LPD connection...")
+    if not lpd_send(connection, lpd_command('02', [b'lptest'])):
+        return False
+    print("Sending control file recv command")
+    length_string = bytes(str(control_length), 'ascii')
+    if not lpd_send(connection, lpd_command('02', [length_string, b"cfA" + job_number + hostname])):
+        return False
+    print("Sending control data...")
+    if not lpd_send(connection, control_file + b'\x00'):
+        return False
+    print("Sending job recv command")
+    length_string = bytes(str(data_length), 'ascii')
+    if not lpd_send(connection, lpd_command('03', [length_string, b"dfA" + job_number + hostname])):
+        return False
+    print("Sending print data...")
+    sent_bytes = connection.send(print_data + b'\x00')
+    if sent_bytes == data_length + 1:
+        print("Job sent successfully.")
+        return True
+    else:
+        print("Connection interrupted.")
+        return False
+
+def main():
+    done = False
+    tries = 0
+    while tries < 10 and not done:
+        connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        connection.connect(printer_address)
+        if tries > 0:
+            print(f"Retrying. Attempt {tries} of 10.")
+        done = print_job(connection)
+        tries += 1
+        connection.close()
+
+main()
